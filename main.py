@@ -3,9 +3,11 @@ import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials, SpotifyOAuth
 import dotenv
 import os
+import tkinter as tk
 
 
 def main():
+    # create Spotify client
     spotify = spotipy.Spotify(
         client_credentials_manager=SpotifyOAuth(
             client_id=os.getenv('SPOTIPY_CLIENT_ID'),
@@ -15,56 +17,75 @@ def main():
         )
     )
 
+    # get user's playlists
     playlists = spotify.current_user_playlists()
 
-    # Prompt the user to select a playlist to shuffle
-    print("Choose a playlist to shuffle:")
-    for idx, item in enumerate(playlists['items']):
-        print(f"{idx+1}. {item['name']}")
-    selection = int(input("Enter the number of the playlist: "))
+    # create GUI
+    root = tk.Tk()
+    root.title("Spotify Playlist Shuffler")
 
-    # Get the ID of the selected playlist
-    playlist_idx = playlists['items'][selection-1]['id']
+    # add label
+    label = tk.Label(root, text="Choose a playlist:")
+    label.pack()
 
-    song_dict = {}
+    # add listbox
+    listbox = tk.Listbox(root, selectmode="single")
+    listbox.pack()
 
-    playlist = spotify.playlist_items(playlist_id=playlist_idx)
-    num = playlist['total']
+    # add playlist names to listbox
+    for playlist in playlists["items"]:
+        listbox.insert(tk.END, playlist["name"])
 
-    my_count = 0
+    # add button
+    button = tk.Button(root, text="Shuffle Playlist", command=lambda: shuffle_playlist(
+        listbox.get(listbox.curselection()), spotify))
+    button.pack()
 
-    while num > 0:
+    root.mainloop()
 
-        for idx, song in enumerate(playlist['items']):
-            song_dict[song['track']['name']] = idx + my_count
 
-        num -= 100
-        my_count += 100
+def shuffle_playlist(playlist_name, spotify):
+    # get user's playlists
+    playlists = spotify.current_user_playlists()
 
-        playlist = spotify.playlist_items(
-            playlist_id=playlist_idx, offset=my_count)
+    # find the playlist with the matching name
+    for playlist in playlists["items"]:
+        if playlist["name"] == playlist_name:
+            playlist_id = playlist["id"]
+            break
 
+    # get all songs in the playlist
+    songs = []
+    results = spotify.playlist_items(
+        playlist_id, fields="items(track(name, id)), next", additional_types=['track'])
+    while results:
+        for song in results["items"]:
+            songs.append(song["track"]["id"])
+        if results["next"]:
+            results = spotify.next(results)
+        else:
+            break
+
+    # shuffle the list of song IDs
     for _ in range(52):
-        song_dict = riffle_shuffle_dict(song_dict)
+        songs = riffle_shuffle_list(songs)
 
-    for itemidx, item in enumerate(song_dict):
-        spotify.playlist_reorder_items(
-            playlist_id=playlist_idx, range_start=song_dict[item], range_length=1, insert_before=itemidx)
+    # replace the playlist with the shuffled songs
+    spotify.playlist_replace_items(playlist_id, songs)
 
-    print("Done")
+    print(f"Playlist '{playlist_name}' has been shuffled!")
 
 
-def riffle_shuffle_dict(d):
-    items = list(d.items())
-    random.shuffle(items)
-    half = len(items) // 2
+def riffle_shuffle_list(lst):
+    half = len(lst) // 2
+    left, right = lst[:half], lst[half:]
     shuffled = []
     for i in range(half):
-        shuffled.append(items[i])
-        shuffled.append(items[i+half])
-    if len(items) % 2 == 1:
-        shuffled.append(items[-1])
-    return dict(shuffled)
+        shuffled.append(left[i])
+        shuffled.append(right[i])
+    if len(lst) % 2 == 1:
+        shuffled.append(lst[-1])
+    return shuffled
 
 
 if __name__ == '__main__':
